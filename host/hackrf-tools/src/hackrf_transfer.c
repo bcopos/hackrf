@@ -34,6 +34,8 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#include  <librdkafka/rdkafka.h>
+
 #define _FILE_OFFSET_BITS 64
 
 #ifndef bool
@@ -530,6 +532,136 @@ void sigint_callback_handler(int signum)
 
 #define PATH_FILE_MAX_LEN (FILENAME_MAX)
 #define DATE_TIME_MAX_LEN (32)
+
+
+void init_kafka()
+{
+	rd_kafka_topic_t *rkt;
+	char *brokers = "localhost:9092";
+	char mode = 'C';
+	char *topic = NULL;
+	int partition = RD_KAFKA_PARTITION_UA;
+	int opt;
+	rd_kafka_conf_t *conf;
+	rd_kafka_topic_conf_t *topic_conf;
+	char errstr[512];
+	int64_t start_offset = 0;
+	int report_offsets = 0;
+	int do_conf_dump = 0;
+	char tmp[16];
+	int64_t seek_offset = 0;
+	int64_t tmp_offset = 0;
+	int get_wmarks = 0;
+	rd_kafka_headers_t *hdrs = NULL;
+	rd_kafka_resp_err_t err;
+
+	/* Kafka configuration */
+	conf = rd_kafka_conf_new();
+
+	/* Set logger */
+	rd_kafka_conf_set_log_cb(conf, logger);
+
+	/* Quick termination */
+	snprintf(tmp, sizeof(tmp), "%i", SIGIO);
+	rd_kafka_conf_set(conf, "internal.termination.signal", tmp, NULL, 0);
+
+	/* Topic configuration */
+	topic_conf = rd_kafka_topic_conf_new();
+
+	char buf[2048];
+	int sendcnt = 0;
+
+	if (!(rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf,
+			errstr, sizeof(errstr))))
+	{
+			fprintf(stderr,
+				"%% Failed to create new producer: %s\n",
+				errstr);
+			exit(1);
+	}
+
+	/* Add brokers */
+	if (rd_kafka_brokers_add(rk, brokers) == 0) {
+		fprintf(stderr, "%% No valid brokers specified\n");
+		exit(1);
+	}
+
+	/* Create topic */
+	rkt = rd_kafka_topic_new(rk, topic, topic_conf);
+	topic_conf = NULL; /* Now owned by topic */
+
+	while (run && fgets(buf, sizeof(buf), stdin)) {
+		size_t len = strlen(buf);
+		if (buf[len-1] == '\n')
+			buf[--len] = '\0';
+
+		/* Send/Produce message. */
+		if (hdrs) {
+			rd_kafka_headers_t *hdrs_copy;
+			hdrs_copy = rd_kafka_headers_copy(hdrs);
+
+			err = rd_kafka_producev(
+					rk,
+					RD_KAFKA_V_RKT(rkt),
+					RD_KAFKA_V_PARTITION(partition),
+					RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+					RD_KAFKA_V_VALUE(buf, len),
+					RD_KAFKA_V_HEADERS(hdrs_copy),
+					RD_KAFKA_V_END);
+
+			if (err)
+				rd_kafka_headers_destroy(hdrs_copy);
+
+		} else {
+			if (rd_kafka_produce(rkt, partition,
+					RD_KAFKA_MSG_F_COPY,
+					/* Payload and length */
+					buf, len,
+					/* Optional key and its length */
+					NULL, 0,
+					/* Message opaque, provided in
+					 * delivery report callback as
+					 * msg_opaque. */
+					NULL) == -1) {
+				err = rd_kafka_last_error();
+			}
+		}
+
+		if (err) {
+			fprintf(stderr,
+					"%% Failed to produce to topic %s "
+					"partition %i: %s\n",
+					rd_kafka_topic_name(rkt), partition,
+					rd_kafka_err2str(err));
+
+			/* Poll to handle delivery reports */
+			rd_kafka_poll(rk, 0);
+			continue;
+		}
+
+		if (!quiet)
+			fprintf(stderr, "%% Sent %zd bytes to topic "
+				"%s partition %i\n",
+				len, rd_kafka_topic_name(rkt), partition);
+
+		sendcnt++;
+		/* Poll to handle delivery reports */
+		rd_kafka_poll(rk, 0);
+	}
+
+	/* Poll to handle delivery reports */
+	rd_kafka_poll(rk, 0);
+
+	/* Wait for messages to be delivered */
+	while (run && rd_kafka_outq_len(rk) > 0)
+		rd_kafka_poll(rk, 100);
+
+	/* Destroy topic */
+	rd_kafka_topic_destroy(rkt);
+
+	/* Destroy the handle */
+	rd_kafka_destroy(rk);
+}
 
 int main(int argc, char** argv) {
 	int opt;

@@ -420,7 +420,7 @@ int rx_callback(hackrf_transfer* transfer) {
 #endif
 		    return 0;
 		} else {
-			//bytes_written = fwrite(transfer->buffer, 1, bytes_to_write, fd);
+			bytes_written = fwrite(transfer->buffer, 1, bytes_to_write, fd);
 			// replace with memcpy into buf
 
 			// kafka code start
@@ -1193,23 +1193,6 @@ int main(int argc, char** argv) {
 	rkt = rd_kafka_topic_new(rk, topic, topic_conf);
 	topic_conf = NULL; /* Now owned by topic */
 
-	//while (run && fgets(buf, sizeof(buf), stdin)) {
-	//}
-
-	/* Poll to handle delivery reports */
-	rd_kafka_poll(rk, 0);
-
-	/* Wait for messages to be delivered */
-	while (run && rd_kafka_outq_len(rk) > 0)
-		rd_kafka_poll(rk, 100);
-
-	/* Destroy topic */
-	rd_kafka_topic_destroy(rkt);
-
-	/* Destroy the handle */
-	rd_kafka_destroy(rk);
-	// kafka code end
-
 
 	fprintf(stderr, "Stop with Ctrl-C\n");
 	while( (hackrf_is_streaming(device) == HACKRF_TRUE) &&
@@ -1332,8 +1315,15 @@ int main(int argc, char** argv) {
 	}
     
     // kafka cleanup
+	/* Destroy topic */
+	rd_kafka_topic_destroy(rkt);
+
 	if (topic_conf)
 		rd_kafka_topic_conf_destroy(topic_conf);
+
+	/* Destroy the handle */
+	rd_kafka_destroy(rk);
+	// kafka code end
 
 	/* Let background threads clean up and terminate cleanly. */
 	run = 5;

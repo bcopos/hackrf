@@ -139,7 +139,7 @@ ELSE()
       # Ok, how about -lpthread
       CHECK_LIBRARY_EXISTS(pthread pthread_create "" CMAKE_HAVE_PTHREAD_CREATE)
       IF(CMAKE_HAVE_PTHREAD_CREATE)
-        SET(CMAKE_THREAD_LIBS_INIT "-lpthread")
+        SET(CMAKE_THREAD_LIBS_INIT "-lpthread -lrdkafka")
         SET(Threads_FOUND TRUE)
         SET(CMAKE_HAVE_THREADS_LIBRARY 1)
       ENDIF()

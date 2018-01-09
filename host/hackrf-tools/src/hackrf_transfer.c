@@ -368,11 +368,26 @@ uint32_t crystal_correct_ppm ;
 
 int requested_mode_count = 0;
 
+// kafka code
+static int run = 1;
+static int kafka_msg_size;
+static char *brokers;
+static char *topic;
+static rd_kafka_t *rk;
+static rd_kafka_headers_t *hdrs = NULL;
+static rd_kafka_resp_err_t err;
+static rd_kafka_topic_t *rkt;
+static rd_kafka_conf_t *conf;
+static rd_kafka_topic_conf_t *topic_conf;
+static int partition = RD_KAFKA_PARTITION_UA;
+static int sendcnt = 0;
+
 int rx_callback(hackrf_transfer* transfer) {
 	size_t bytes_to_write;
 	size_t bytes_written;
 	unsigned int i;
 
+	//char buf[kafka_msg_size];
 	if( fd != NULL ) 
 	{
 		byte_count += transfer->valid_length;
@@ -409,9 +424,9 @@ int rx_callback(hackrf_transfer* transfer) {
 			// replace with memcpy into buf
 
 			// kafka code start
-			size_t len = strlen(buf);
-			if (buf[len-1] == '\n')
-				buf[--len] = '\0';
+			size_t len = strlen(transfer->buffer);
+			//if (buf[len-1] == '\n')
+			//	buf[--len] = '\0';
 
 			/* Send/Produce message. */
 			if (hdrs) {
@@ -423,7 +438,7 @@ int rx_callback(hackrf_transfer* transfer) {
 						RD_KAFKA_V_RKT(rkt),
 						RD_KAFKA_V_PARTITION(partition),
 						RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-						RD_KAFKA_V_VALUE(buf, len),
+						RD_KAFKA_V_VALUE(transfer->buffer, len),
 						RD_KAFKA_V_HEADERS(hdrs_copy),
 						RD_KAFKA_V_END);
 
@@ -434,7 +449,7 @@ int rx_callback(hackrf_transfer* transfer) {
 				if (rd_kafka_produce(rkt, partition,
 						RD_KAFKA_MSG_F_COPY,
 						/* Payload and length */
-						buf, len,
+						transfer->buffer, len,
 						/* Optional key and its length */
 						NULL, 0,
 						/* Message opaque, provided in
@@ -454,14 +469,13 @@ int rx_callback(hackrf_transfer* transfer) {
 
 				/* Poll to handle delivery reports */
 				rd_kafka_poll(rk, 0);
-				continue;
 			}
-
+			/*
 			if (!quiet)
 				fprintf(stderr, "%% Sent %zd bytes to topic "
 					"%s partition %i\n",
 					len, rd_kafka_topic_name(rkt), partition);
-
+			*/
 			sendcnt++;
 			/* Poll to handle delivery reports */
 			rd_kafka_poll(rk, 0);
@@ -571,6 +585,9 @@ static void usage() {
 #endif
 	printf("\t[-c amplitude] # CW signal source mode, amplitude 0-127 (DC value to DAC).\n");
         printf("\t[-R] # Repeat TX mode (default is off) \n");
+        printf("\t[-T] # Name of Kafka topic \n");
+        printf("\t[-B] # Kafka broker \n");
+        printf("\t[-M] # Kafka message/buffer size \n");
 	printf("\t[-b baseband_filter_bw_hz] # Set baseband filter bandwidth in Hz.\n\tPossible values: 1.75/2.5/3.5/5/5.5/6/7/8/9/10/12/14/15/20/24/28MHz, default <= 0.75 * sample_rate_hz.\n" );
 	printf("\t[-C ppm] # Set Internal crystal clock error in ppm.\n");
 	printf("\t[-H hw_sync_enable] # Synchronise USB transfer using GPIO pins.\n");
@@ -600,19 +617,6 @@ void sigint_callback_handler(int signum)
 #define PATH_FILE_MAX_LEN (FILENAME_MAX)
 #define DATE_TIME_MAX_LEN (32)
 
-// kafka code
-static int run = 1;
-static int kafka_msg_size;
-static char *brokers;
-static char *topic;
-static rd_kafka_t *rk;
-static rd_kafka_headers_t *hdrs = NULL;
-static rd_kafka_resp_err_t err;
-static rd_kafka_topic_t *rkt;
-static rd_kafka_conf_t *conf;
-static rd_kafka_topic_conf_t *topic_conf;
-static int partition = RD_KAFKA_PARTITION_UA;
-static *int sendcnt = 0;
 
 void init_kafka(char *topic, int kafka_msg_size, char *brokers)
 {
@@ -765,30 +769,29 @@ int main(int argc, char** argv) {
 			result = parse_u32(optarg, &amplitude);
 			break;
 
-        case 'R':
-            repeat = true;
-            break;
+		case 'R':
+			repeat = true;
+			break;
                       
-        case 'C':
+		case 'C':
 			crystal_correct = true;
 			result = parse_u32(optarg, &crystal_correct_ppm);
 			break;
 
-        case 'T':
-            // kafka topic
-            topic = optarg;
-            break;
+		case 'T':
+			// kafka topic
+			topic = optarg;
+			break;
 
-        case 'B':
-            // kafka broker
-            brokers = optarg;
-            break;
+		case 'B':
+			// kafka broker
+			brokers = optarg;
+			break;
 
-        case 'S':
-            // kafka producer message buffer size
-            kafka_msg_size = atoi(optarg);
-            static char buf[kafka_msg_size];
-            break;
+		case 'M':
+			// kafka producer message buffer size
+			kafka_msg_size = atoi(optarg);
+			break;
 
 		case 'h':
 		case '?':
@@ -1161,7 +1164,7 @@ int main(int argc, char** argv) {
 	conf = rd_kafka_conf_new();
 
 	/* Set logger */
-	rd_kafka_conf_set_log_cb(conf, logger);
+	//rd_kafka_conf_set_log_cb(conf, logger);
 
 	/* Quick termination */
 	snprintf(tmp, sizeof(tmp), "%i", SIGIO);

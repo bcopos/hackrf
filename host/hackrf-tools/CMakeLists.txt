@@ -33,7 +33,7 @@ include_directories(getopt)
 add_definitions(/D _CRT_SECURE_NO_WARNINGS)
 else()
 add_definitions(-Wall)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu90")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu90 -I/usr/local/include -L/usr/local/lib")
 endif()
 
 if(NOT libhackrf_SOURCE_DIR)

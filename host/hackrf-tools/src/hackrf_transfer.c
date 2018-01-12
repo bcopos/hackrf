@@ -441,6 +441,28 @@ int rx_callback(hackrf_transfer* transfer) {
 			//	buf[--len] = '\0';
 
 			/* Send/Produce message. */
+            
+            // add header with timestamp
+            hdrs = rd_kafka_headers_new(8);
+            char *name, *val;
+            name = 'time';
+
+            time_t rawtime;
+            struct tm * timeinfo;
+            time (&rawtime);
+            timeinfo = localtime (&rawtime);
+            strftime(val, 16, "%G-%m-%d-%H-%M-%S", timeinfo);
+
+            size_t name_sz = -1;
+
+            err = rd_kafka_header_add(hdrs, name, name_sz, val, -1);
+            if (err) {
+                fprintf(stderr,
+                        "%% Failed to add header %s: %s\n",
+                        name, rd_kafka_err2str(err));
+                return -1;
+            }
+
 			if (hdrs) {
 				rd_kafka_headers_t *hdrs_copy;
 				hdrs_copy = rd_kafka_headers_copy(hdrs);

@@ -426,17 +426,20 @@ int rx_callback(hackrf_transfer* transfer) {
 #endif
 		    return 0;
 		} else {
-			bytes_written = fwrite(transfer->buffer, 1, bytes_to_write, fd);
+			//bytes_written = fwrite(transfer->buffer, 1, bytes_to_write, fd);
 			// replace with memcpy into buf
+
+            if (transfer->buffer[len-1] == '\n')
+                transfer->buffer[--len] = '\0';
 
             // perform PSD
             int windowSize; // THIS SHOULD BE AN ARG
             double* psd;
             psd = perform_psd(transfer->buffer, windowSize);
+			size_t len = strlen(psd);
             
 
 			// kafka code start
-			size_t len = strlen(psd);
 			//if (buf[len-1] == '\n')
 			//	buf[--len] = '\0';
 

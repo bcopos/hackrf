@@ -42,6 +42,13 @@
 #include <syslog.h>
 #include <sys/time.h>
 
+// power spectral density deps
+#include <fftw3.h>
+#include <complex.h>
+#include <math.h>
+#define PI 3.141592653589793
+
+
 #define _FILE_OFFSET_BITS 64
 
 #ifndef bool
@@ -387,7 +394,6 @@ int rx_callback(hackrf_transfer* transfer) {
 	size_t bytes_written;
 	unsigned int i;
 
-	//char buf[kafka_msg_size];
 	if( fd != NULL ) 
 	{
 		byte_count += transfer->valid_length;
@@ -423,8 +429,14 @@ int rx_callback(hackrf_transfer* transfer) {
 			bytes_written = fwrite(transfer->buffer, 1, bytes_to_write, fd);
 			// replace with memcpy into buf
 
+            // perform PSD
+            int windowSize; // THIS SHOULD BE AN ARG
+            double* psd;
+            psd = perform_psd(transfer->buffer, windowSize);
+            
+
 			// kafka code start
-			size_t len = strlen(transfer->buffer);
+			size_t len = strlen(psd);
 			//if (buf[len-1] == '\n')
 			//	buf[--len] = '\0';
 
@@ -438,7 +450,7 @@ int rx_callback(hackrf_transfer* transfer) {
 						RD_KAFKA_V_RKT(rkt),
 						RD_KAFKA_V_PARTITION(partition),
 						RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-						RD_KAFKA_V_VALUE(transfer->buffer, len),
+						RD_KAFKA_V_VALUE(psd, len),
 						RD_KAFKA_V_HEADERS(hdrs_copy),
 						RD_KAFKA_V_END);
 
@@ -449,7 +461,7 @@ int rx_callback(hackrf_transfer* transfer) {
 				if (rd_kafka_produce(rkt, partition,
 						RD_KAFKA_MSG_F_COPY,
 						/* Payload and length */
-						transfer->buffer, len,
+						psd, len,
 						/* Optional key and its length */
 						NULL, 0,
 						/* Message opaque, provided in
@@ -469,6 +481,7 @@ int rx_callback(hackrf_transfer* transfer) {
 
 				/* Poll to handle delivery reports */
 				rd_kafka_poll(rk, 0);
+                return -1;
 			}
 			/*
 			if (!quiet)
@@ -481,12 +494,13 @@ int rx_callback(hackrf_transfer* transfer) {
 			rd_kafka_poll(rk, 0);
 			// kafka code stop
 
-			if ((bytes_written != bytes_to_write)
-				|| (limit_num_samples && (bytes_to_xfer == 0))) {
-				return -1;
-			} else {
-				return 0;
-			}
+			//if ((bytes_written != bytes_to_write)
+			//	|| (limit_num_samples && (bytes_to_xfer == 0))) {
+			//	return -1;
+			//} else {
+			//    return 0;
+		    //}
+            return 0;
 		}
 	} else {
 		return -1;
@@ -551,6 +565,47 @@ int tx_callback(hackrf_transfer* transfer) {
 	} else {
         return -1;
     }
+}
+
+
+double perform_psd(uint8_t* value, int windowSize) {
+    double* result;
+    double* power_spectrum;
+	double multiplier = 0.0;
+    size_t index;
+	fftw_plan plan;
+
+
+    //value = (double*)malloc(sizeof(double)*windowsSize);
+    result = (double*)malloc(sizeof(double)*(windowsSize)); // what is the length that I have to choose here ? 
+
+	plan = fftw_plan_r2r_1d(windowsSize,value,result,FFTW_R2HC,FFTW_ESTIMATE);	
+
+	index = strlen(value);
+
+    // if data is smaller than window size, pad with 0s
+	if( index != windowsSize){
+		for(i = index; i < windowsSize; i++) {
+			value[i] = 0.0;
+		}
+	}
+
+	// take data and apply window function to it (Hann window)
+	for (int i = 0; i < windowsSize; i++) {
+		multiplier = 0.5 * (1 - cos(2 * PI * i / (windowsSize - 1)));
+		value[i] *= multiplier;
+	}
+
+	fftw_execute(plan);
+
+	int spectrum_lines = windowsSize / 2 + 1;
+	double power_spectrum = (double *)malloc( sizeof(double) * spectrum_lines );
+	power_spectrum[0] = result[0] * result[0];
+	for (int i = 1 ; i < windowsSize / 2 ; i++ )
+		power_spectrum[i] = result[i] * result[i] + result[windowsSize - i] * result[windowsSize - i];
+	power_spectrum[i] = result[i] * result[i];
+
+	return power_spectrum
 }
 
 static void usage() {

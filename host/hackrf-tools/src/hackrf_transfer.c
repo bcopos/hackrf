@@ -389,6 +389,7 @@ static rd_kafka_topic_conf_t *topic_conf;
 static int partition = RD_KAFKA_PARTITION_UA;
 static int sendcnt = 0;
 static int windowSize;
+const fftw_plan plan;
 
 int rx_callback(hackrf_transfer* transfer) {
 	size_t bytes_to_write;
@@ -447,10 +448,9 @@ int rx_callback(hackrf_transfer* transfer) {
 			/* Send/Produce message. */
             
             // add header with timestamp
-            hdrs = rd_kafka_headers_new(8);
-            char name = "time";
-            char *val[30];
-            name = 'time';
+            hdrs = rd_kafka_headers_new(4);
+            char *name = "time";
+            char val[30] = "";
 
             time_t rawtime;
             struct tm * timeinfo;
@@ -458,8 +458,6 @@ int rx_callback(hackrf_transfer* transfer) {
             timeinfo = localtime (&rawtime);
             strftime(val, sizeof(val), "%G-%m-%d-%H-%M-%S", timeinfo);
 
-            //size_t name_sz = strlen(name);
-            //size_t val_sz = strlen(val);
             err = rd_kafka_header_add(hdrs, name, -1, val, -1);
             if (err) {
                 fprintf(stderr,
@@ -601,14 +599,10 @@ void perform_psd(uint8_t* value, int windowSize, double* power_spectrum) {
     double* result;
 	double multiplier = 0.0;
     size_t index;
-	fftw_plan plan;
 	int i = 0;
 
     //value = (double*)malloc(sizeof(double)*windowSize);
     result = (double*)malloc(sizeof(double)*(windowSize)); // what is the length that I have to choose here ? 
-
-	plan = fftw_plan_r2r_1d(windowSize,value,result,FFTW_R2HC,FFTW_ESTIMATE);	
-
 	index = strlen(value);
 
     // if data is smaller than window size, pad with 0s
@@ -624,7 +618,7 @@ void perform_psd(uint8_t* value, int windowSize, double* power_spectrum) {
 		value[i] *= multiplier;
 	}
 
-	fftw_execute(plan);
+	fftw_execute_r2r(plan, value, result);
 
 	int spectrum_lines = windowSize / 2 + 1;
 	power_spectrum = (double *)malloc( sizeof(double) * spectrum_lines );
@@ -633,7 +627,8 @@ void perform_psd(uint8_t* value, int windowSize, double* power_spectrum) {
 		power_spectrum[i] = result[i] * result[i] + result[windowSize - i] * result[windowSize - i];
 	power_spectrum[i] = result[i] * result[i];
 
-    free(result);
+    fftw_free(result);
+    //fftw_free(value);
 }
 
 static void usage() {
@@ -1249,6 +1244,10 @@ int main(int argc, char** argv) {
 	int64_t tmp_offset = 0;
 	int get_wmarks = 0;
 
+    // fftw
+    double *value;
+    double *result;
+	plan = fftw_plan_r2r_1d(windowSize,value,result,FFTW_R2HC,FFTW_ESTIMATE);	
 	/* Kafka configuration */
 	conf = rd_kafka_conf_new();
 
